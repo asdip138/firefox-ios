@@ -6,6 +6,8 @@ import Foundation
 import UIKit
 import Shared
 
+private let log = Logger.syncLogger
+
 public protocol SearchableBookmarks {
     func bookmarksByURL(url: NSURL) -> Deferred<Maybe<Cursor<BookmarkItem>>>
 }
@@ -269,3 +271,60 @@ public struct BookmarkMirrorItem {
             children: nil)
     }
 }
+
+// MARK: - Defining a tree structure for syncability.
+
+enum OverlayDirection {
+    case BufferOnMirror
+    case LocalOnMirror
+}
+
+protocol StructureNode {
+    var guid: GUID { get }
+    var overrides: StructureNode? { get }
+    var deleted: Bool { get }
+}
+
+protocol FolderNode {
+    var children: [StructureNode] { get }
+}
+
+// We use a class here for two reasons: firstly, structs are limited (e.g.,
+// recursive definitions require protocols); secondly, we want guaranteed
+// duplicate references for shared overrides.
+class RecordNode: StructureNode {
+    let guid: GUID
+    let overrides: StructureNode?     // Might not be of the same type!
+    let deleted: Bool
+
+    init(guid: GUID, overrides: StructureNode?, deleted: Bool) {
+        self.guid = guid
+        self.overrides = overrides
+        self.deleted = deleted
+    }
+}
+
+class BookmarkFolderNode: RecordNode, FolderNode {
+    let children: [StructureNode]
+
+    init(guid: GUID, overrides: StructureNode?, deleted: Bool, children: [StructureNode]) {
+
+        // TODO: if this happens in the wild, we ought to figure out what to do.
+        precondition(!(BookmarkRoots.All.contains(guid) && deleted), "Roots should never be deleted.")
+        precondition(!((BookmarkRoots.RootGUID == guid) && children.isEmpty), "The Places root should never be empty.")
+
+        self.children = children
+        super.init(guid: guid, overrides: overrides, deleted: deleted)
+    }
+}
+
+public struct BookmarkTree {
+    let lookup: [GUID: StructureNode]
+    let root: BookmarkFolderNode
+}
+
+/*
+    public lazy var isBookmarkRoot: Bool = {
+        return BookmarkRoots.All.contains(self.root.guid)
+    }()
+*/
