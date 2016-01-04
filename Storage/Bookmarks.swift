@@ -287,7 +287,6 @@ public struct BookmarkMirrorItem {
 
 public enum BookmarkTreeNode {
     indirect case Folder(guid: GUID, overridden: Bool, children: [BookmarkTreeNode])
-    case SparseFolder(guid: GUID, overridden: Bool, children: [GUID])
     case NonFolder(guid: GUID, overridden: Bool)
     case Unknown(guid: GUID)
 }
