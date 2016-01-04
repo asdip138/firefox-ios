@@ -559,6 +559,18 @@ extension MergedSQLiteBookmarks: SyncableBookmarks {
     public func getLocalDeletions() -> Deferred<Maybe<[(GUID, Timestamp)]>> {
         return self.local.getLocalDeletions()
     }
+
+    public func treeForMirror() -> Deferred<Maybe<BookmarkTree>> {
+        return self.local.treeForMirror()
+    }
+
+    public func treesForEdges() -> Deferred<Maybe<(local: BookmarkTree, buffer: BookmarkTree)>> {
+        return self.local.treeForLocal() >>== { local in
+            return self.local.treeForBuffer() >>== { buffer in
+                return deferMaybe((local: local, buffer: buffer))
+            }
+        }
+    }
 }
 
 
