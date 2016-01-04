@@ -282,6 +282,20 @@ class TrivialBookmarksMerger: BookmarksMerger {
     }
 
     private func threeWayMerge() -> Deferred<Maybe<BookmarksMergeResult>> {
+        return self.storage.treesForEdges() >>== { (local, buffer) in
+            if local.isEmpty() && buffer.isEmpty() {
+                // We should never have been called!
+                return deferMaybe(BookmarksMergeResult.NoOp)
+            }
+
+            // Find the mirror tree so we can compare.
+            return self.storage.treeForMirror() >>== { mirror in
+                return self.threeWayMergeBetweenLocal(local, mirror: mirror, buffer: buffer)
+            }
+        }
+    }
+
+    private func threeWayMergeBetweenLocal(local: BookmarkTree, mirror: BookmarkTree, buffer: BookmarkTree) -> Deferred<Maybe<BookmarksMergeResult>> {
         // At this point we know that there have been changes both locally and remotely.
         // It's very likely that there's almost no overlap, and thus no real conflicts to
         // resolve -- a three-way merge isn't always a bad thing -- but we won't know until
@@ -356,6 +370,10 @@ class TrivialBookmarksMerger: BookmarksMerger {
         // No match in the mirror? Check for content match with the same parent, any position.
         // Still no match? Add.
 
+        // 1. Make sure that both the buffer and local trees are rooted in the mirror.
+        //    This allows us to take our walk.
+        let localRooted = local.overlayOnBase(mirror)
+        let bufferRooted = buffer.overlayOnBase(mirror)
         // TODO
         return deferMaybe(BookmarksMergeResult.NoOp)
     }
