@@ -294,12 +294,24 @@ public enum BookmarkTreeNode {
 }
 
 public struct BookmarkTree {
-    let roots: [BookmarkTreeNode]
-    let lookup: [GUID: BookmarkTreeNode]
-    let deleted: Set<GUID>
+    public let roots: [BookmarkTreeNode]
+    public let lookup: [GUID: BookmarkTreeNode]
+    public let deleted: Set<GUID>
 
-    func isEmpty() -> Bool {
+    public func isEmpty() -> Bool {
         return self.roots.isEmpty && self.deleted.isEmpty
+    }
+
+    /**
+     * Return a new tree that is exactly this tree but with additional layers added
+     * on top to reach the same roots as the provided base, if possible.
+     * If this tree was created as an overlay on the provided base tree, this should
+     * always succeed. If not (e.g., if `base` is empty), then the result should be
+     * somewhere between no change and the ideal outcome.
+     */
+    public func overlayOnBase(base: BookmarkTree) -> BookmarkTree {
+        // TODO
+        return self
     }
 }
 
