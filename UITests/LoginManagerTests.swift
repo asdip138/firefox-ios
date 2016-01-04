@@ -193,4 +193,22 @@ class LoginManagerTests: KIFTestCase {
 
         BrowserUtils.resetToAboutHome(tester())
     }
+
+    func testLoginListShowsNoResults() {
+        openLoginManager()
+
+        tester().waitForViewWithAccessibilityLabel("a0@email.com, http://a0.com")
+
+        // Find something that doesn't exist
+        tester().tapViewWithAccessibilityLabel("Enter Search Mode")
+        tester().enterTextIntoCurrentFirstResponder("asdfasdf")
+        tester().waitForViewWithAccessibilityLabel("No logins found")
+
+        tester().clearTextFromAndThenEnterTextIntoCurrentFirstResponder("")
+
+        // Erase search and make sure we see results instead
+        tester().waitForViewWithAccessibilityLabel("a0@email.com, http://a0.com")
+
+        closeLoginManager()
+    }
 }
