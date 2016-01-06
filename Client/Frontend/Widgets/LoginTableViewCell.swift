@@ -168,6 +168,7 @@ class LoginTableViewCell: UITableViewCell {
         delegate = nil
         descriptionLabel.secureTextEntry = false
         descriptionLabel.keyboardType = .Default
+        descriptionLabel.returnKeyType = .Default
         descriptionLabel.userInteractionEnabled = false
     }
 

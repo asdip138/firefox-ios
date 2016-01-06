@@ -175,6 +175,7 @@ extension LoginDetailViewController: UITableViewDataSource {
             loginCell.highlightedLabel.text = NSLocalizedString("username", tableName: "LoginManager", comment: "Title for username row in Login Detail View")
             loginCell.descriptionLabel.text = login.username
             loginCell.descriptionLabel.keyboardType = .EmailAddress
+            loginCell.descriptionLabel.returnKeyType = .Next
             loginCell.descriptionLabel.userInteractionEnabled = editingInfo
             return loginCell
 
@@ -183,6 +184,7 @@ extension LoginDetailViewController: UITableViewDataSource {
             loginCell.style = .NoIconAndBothLabels
             loginCell.highlightedLabel.text = NSLocalizedString("password", tableName: "LoginManager", comment: "Title for password row in Login Detail View")
             loginCell.descriptionLabel.text = login.password
+            loginCell.descriptionLabel.returnKeyType = .Next
             loginCell.displayDescriptionAsPassword = true
             loginCell.descriptionLabel.userInteractionEnabled = editingInfo
             return loginCell
@@ -326,8 +328,6 @@ extension LoginDetailViewController: UITextFieldDelegate {
             passwordField?.becomeFirstResponder()
         } else if textField == passwordField {
             websiteField?.becomeFirstResponder()
-        } else {
-            textField.resignFirstResponder()
         }
 
         return false
