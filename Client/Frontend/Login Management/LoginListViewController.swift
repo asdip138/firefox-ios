@@ -32,6 +32,12 @@ class LoginListViewController: UIViewController {
         return ListSelectionController(tableView: self.tableView)
     }()
 
+    private lazy var loginFaviconLoader: LoginFaviconLoader = {
+        let loader = LoginFaviconLoader(profile: self.profile)
+        loader.delegate = self
+        return loader
+    }()
+
     private lazy var loginDataSource: LoginCursorDataSource = {
         return LoginCursorDataSource()
     }()
@@ -128,6 +134,28 @@ class LoginListViewController: UIViewController {
             activeLoginQuery = profile.logins.getAllLogins().bindQueue(dispatch_get_main_queue()) { result in
                 self.loginDataSource.cursor = result.successValue
                 self.tableView.reloadData()
+
+                // Check to see if the logins have favicons. If so, use them, if not, fetch away.
+                if let logins = result.successValue?.asArray() {
+
+                    func haveFaviconForLogin(login: Login) -> Bool {
+                        return true
+                    }
+
+                    func faviconsForLogin(login: Login) -> [Favicon] {
+                        return []
+                    }
+
+                    // Fetch favicons we need
+                    let faviconsToFetch = logins.filter { !haveFaviconForLogin($0) }
+                    self.loginFaviconLoader.loadFaviconsForLogins(faviconsToFetch)
+
+                    // Grab favicons we have
+                    let faviconsWeHave = logins.filter(haveFaviconForLogin)
+                    faviconsWeHave.forEach { login in
+                        self.loginDataSource.loginFaviconMap[login] = faviconsForLogin(login)
+                    }
+                }
                 return succeed()
             }
         }
@@ -336,6 +364,33 @@ extension LoginListViewController: SearchInputViewDelegate {
     }
 }
 
+// MARK: - LoginFaviconLoaderDelegate
+extension LoginListViewController: LoginFaviconLoaderDelegate {
+
+    private func linkFavicons(favicons: [Favicon], withLogin: Login) -> Success {
+        return succeed()
+    }
+
+    func didFinishLoadingFavicons(favicons: [Favicon], forLogin login: Login) {
+        // Find the row we want to update with the favicon
+        guard let indexPath = loginDataSource.indexPathForLogin(login) else {
+            return
+        }
+
+        linkFavicons(favicons, withLogin: login).uponQueue(dispatch_get_main_queue()) { _ in
+            self.loginDataSource.loginFaviconMap[login] = favicons
+
+            // Invalidate the cell that contains the updated login if it's visible. If not, it will get updated
+            // the next call to cellForIndexPath
+            if self.tableView.indexPathsForVisibleRows?.contains(indexPath) ?? false {
+                // TODO: Ideally we would want to reload the single cell but for some reason the contents of the 
+                // UITableViewCell get all messed up and animates everything to the left.
+                self.tableView.reloadData()
+            }
+        }
+    }
+}
+
 /// Controller that keeps track of selected indexes
 private class ListSelectionController: NSObject {
 
@@ -380,13 +435,63 @@ private class ListSelectionController: NSObject {
     }
 }
 
+/// Loader containg logic for fetching favicons associated with a Login
+private class LoginFaviconLoader: NSObject {
+
+    private unowned var profile: Profile
+
+    var delegate: LoginFaviconLoaderDelegate? = nil
+
+    init(profile: Profile) {
+        self.profile = profile
+        super.init()
+    }
+
+    func loadFaviconsForLogins(logins: [Login]) {
+        logins.forEach { login in
+            loadFaviconsForLogin(login)?.uponQueue(dispatch_get_main_queue()) { result in
+                if let favicons = result.successValue {
+                    self.delegate?.didFinishLoadingFavicons(favicons, forLogin: login)
+                }
+            }
+        }
+    }
+
+    func loadFaviconsForLogin(login: Login) -> Deferred<Maybe<[Favicon]>>? {
+        guard let url = login.hostname.asURL else {
+            return nil
+        }
+        return FaviconFetcher.getForURL(url, profile: self.profile)
+    }
+}
+
+protocol LoginFaviconLoaderDelegate {
+    func didFinishLoadingFavicons(favicons: [Favicon], forLogin login: Login)
+}
+
 /// Data source for handling LoginData objects from a Cursor
 private class LoginCursorDataSource: NSObject, UITableViewDataSource {
 
     var cursor: Cursor<Login>?
 
+    var loginFaviconMap = [Login: [Favicon]]()
+
     func loginAtIndexPath(indexPath: NSIndexPath) -> Login {
         return loginsForSection(indexPath.section)[indexPath.row]
+    }
+
+    func indexPathForLogin(login: Login) -> NSIndexPath? {
+        guard let baseDomain = login.hostname.asURL?.baseDomain() else {
+            return nil
+        }
+
+        let firstChar = baseDomain.uppercaseString[baseDomain.startIndex]
+
+        guard let section = sectionIndexTitles()?.indexOf(String(firstChar)),
+              let row = loginsForSection(section).indexOf(login) else {
+            return nil
+        }
+        return NSIndexPath(forRow: row, inSection: section)
     }
 
     @objc func numberOfSectionsInTableView(tableView: UITableView) -> Int {
@@ -404,6 +509,10 @@ private class LoginCursorDataSource: NSObject, UITableViewDataSource {
         cell.style = .IconAndBothLabels
         cell.updateCellWithLogin(login)
 
+        let favicon = bestFittingFaviconForLogin(login)
+        if let faviconURL = favicon?.url.asURL {
+            cell.iconImageView.sd_setImageWithURL(faviconURL, placeholderImage: UIImage(named: "faviconFox"))
+        }
         return cell
     }
 
@@ -462,5 +571,13 @@ private class LoginCursorDataSource: NSObject, UITableViewDataSource {
                 return baseDomain1 < baseDomain2
             }
         }
+    }
+
+    private func bestFittingFaviconForLogin(login: Login) -> Favicon? {
+        var bestFitFavicon: Favicon?
+        loginFaviconMap[login]?.forEach { favicon in
+            bestFitFavicon = favicon
+        }
+        return bestFitFavicon
     }
 }

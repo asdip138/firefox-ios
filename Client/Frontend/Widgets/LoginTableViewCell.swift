@@ -69,7 +69,7 @@ class LoginTableViewCell: UITableViewCell {
         return label
     }()
 
-    private lazy var iconImageView: UIImageView = {
+    lazy var iconImageView: UIImageView = {
         let imageView = UIImageView()
         imageView.backgroundColor = UIColor.whiteColor()
         imageView.contentMode = .ScaleAspectFit
@@ -345,6 +345,5 @@ extension LoginTableViewCell {
     func updateCellWithLogin(login: LoginData) {
         descriptionLabel.text = login.hostname
         highlightedLabel.text = login.username
-        iconImageView.image = UIImage(named: "faviconFox")
     }
 }
