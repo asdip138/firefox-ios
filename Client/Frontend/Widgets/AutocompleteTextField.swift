@@ -25,6 +25,7 @@ class AutocompleteTextField: UITextField, UITextFieldDelegate {
 
     private var completionActive = false
     private var canAutocomplete = true
+    private var placeCaretAtEnd = false
     private var enteredText = ""
     private var previousSuggestion = ""
     private var notifyTextChanged: (() -> ())? = nil
@@ -70,6 +71,7 @@ class AutocompleteTextField: UITextField, UITextFieldDelegate {
     }
 
     func highlightAll() {
+        print("its me")
         if let text = text {
             if !text.isEmpty {
                 let attributedString = NSMutableAttributedString(string: text)
@@ -211,6 +213,11 @@ class AutocompleteTextField: UITextField, UITextFieldDelegate {
     override func touchesBegan(touches: Set<UITouch>, withEvent event: UIEvent?) {
         if !completionActive {
             super.touchesBegan(touches, withEvent: event)
+        } else {
+            applyCompletion()
+
+            // Set boolean to set the current position to the end of the text in touchesEnded.
+            placeCaretAtEnd = true
         }
     }
 
@@ -221,13 +228,11 @@ class AutocompleteTextField: UITextField, UITextFieldDelegate {
     }
 
     override func touchesEnded(touches: Set<UITouch>, withEvent event: UIEvent?) {
-        if !completionActive {
+        if !completionActive && !placeCaretAtEnd {
             super.touchesEnded(touches, withEvent: event)
         } else {
-            applyCompletion()
-
-            // Set the current position to the end of the text.
             selectedTextRange = textRangeFromPosition(endOfDocument, toPosition: endOfDocument)
+            placeCaretAtEnd = false
         }
     }
 }
