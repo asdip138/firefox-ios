@@ -223,6 +223,30 @@ class BufferCompletionNoOp: BufferCompletionOp {
     }
 }
 
+public class BookmarksMergeError: MaybeErrorType {
+    public var description: String {
+        return "Merge error"
+    }
+}
+
+public class BookmarksMergeConsistencyError: BookmarksMergeError {
+    override public var description: String {
+        return "Merge consistency error"
+    }
+}
+
+public class BookmarksMergeErrorTreeIsUnrooted: BookmarksMergeConsistencyError {
+    public let roots: Set<GUID>
+
+    public init(roots: Set<GUID>) {
+        self.roots = roots
+    }
+
+    override public var description: String {
+        return "Tree is unrooted: roots are \(self.roots)"
+    }
+}
+
 // MARK: - Real implementations of each protocol.
 
 class TrivialBookmarksMerger: BookmarksMerger {
