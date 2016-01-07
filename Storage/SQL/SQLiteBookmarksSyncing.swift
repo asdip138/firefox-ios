@@ -653,7 +653,7 @@ extension SQLiteBookmarks {
             return (parent: row["parent"] as! GUID, child: row["child"] as! GUID, type: type)
         }
         return self.db.runQuery(sql, args: nil, factory: structureFactory)
-            >>== { mappingsToTree($0.asArray()) }
+            >>== { BookmarkTree.mappingsToTree($0.asArray()) }
     }
 
     public func treeForMirror() -> Deferred<Maybe<BookmarkTree>> {
@@ -669,74 +669,3 @@ extension SQLiteBookmarks {
     }
 }
 
-    // Recursively process an input set of structure pairs to yield complete subtrees,
-    // assembling those subtrees to make a minimal set of trees.
-    // We don't handle overridden yet.
-
-typealias StructureRow = (parent: GUID, child: GUID, type: BookmarkNodeType?)
-
-func mappingsToTree(mappings: [StructureRow]) -> Deferred<Maybe<BookmarkTree>> {
-    // Accumulate.
-    var nodes: [GUID: BookmarkTreeNode] = [:]
-    var remainingFolders = Set<GUID>()
-    var tops = Set<GUID>()
-    var notTops = Set<GUID>()
-
-    // Precompute every leaf node.
-    mappings.forEach { row in
-        log.debug("Mapping: \(row.parent) -> \(row.child) (child type: \(row.type))")
-        remainingFolders.insert(row.parent)
-        tops.insert(row.parent)
-
-        // None of the children we've seen can be top, so remove them.
-        notTops.insert(row.child)
-
-        if let type = row.type {
-            switch type {
-            case .Folder:
-                // The child is itself a folder.
-                remainingFolders.insert(row.child)
-            default:
-                nodes[row.child] = BookmarkTreeNode.NonFolder(guid: row.child, overridden: false)
-            }
-        } else {
-            // This will be the case if we've shadowed a folder; we indirectly reference the original rows.
-            nodes[row.child] = BookmarkTreeNode.Unknown(guid: row.child)
-        }
-    }
-
-    tops.subtractInPlace(notTops)
-
-    // We can't immediately build the final tree, because we need to do it bottom-up!
-    // So store structure, which we can figure out flat.
-    var pseudoTree: [GUID: [GUID]] = mappings.groupBy({ $0.parent }, transformer: { $0.child })
-
-    // Recursive. (Not tail recursive, but trees shouldn't be deep enough to blow the stack….)
-    func nodeForGUID(guid: GUID) -> BookmarkTreeNode {
-        if let already = nodes[guid] {
-            return already
-        }
-
-        if !remainingFolders.contains(guid) {
-            return BookmarkTreeNode.Unknown(guid: guid)
-        }
-
-        // Removing these eagerly prevents infinite recursion in the case of a cycle.
-        let childGUIDs = pseudoTree[guid] ?? []
-        pseudoTree.removeValueForKey(guid)
-        remainingFolders.remove(guid)
-
-        let node = BookmarkTreeNode.Folder(guid: guid, overridden: false, children: childGUIDs.map(nodeForGUID))
-        nodes[guid] = node
-        return node
-    }
-
-    // Process every record.
-    // Do the not-tops first: shallower recursion.
-    notTops.forEach({ nodeForGUID($0) })
-    let roots = tops.map(nodeForGUID)
-
-    // Whatever we're left with in `tops` is the set of records for which we
-    // didn't process a parent.
-    return deferMaybe(BookmarkTree(roots: roots, lookup: nodes, deleted: Set<GUID>()))
-}

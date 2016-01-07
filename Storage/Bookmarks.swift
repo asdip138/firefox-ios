@@ -291,30 +291,150 @@ public enum BookmarkTreeNode {
     indirect case Folder(guid: GUID, overridden: Bool, children: [BookmarkTreeNode])
     case NonFolder(guid: GUID, overridden: Bool)
     case Unknown(guid: GUID)
+
+    // Because shared associated values between enum cases aren't possible.
+    var recordGUID: GUID {
+        switch self {
+        case let .Folder(guid, _, _):
+            return guid
+        case let .NonFolder(guid, _):
+            return guid
+        case let .Unknown(guid):
+            return guid
+        }
+    }
+
+    var isRoot: Bool {
+        return BookmarkRoots.All.contains(self.recordGUID)
+    }
 }
 
 public struct BookmarkTree {
-    public let roots: [BookmarkTreeNode]
+    public let subtrees: [BookmarkTreeNode]
+
+    // Record GUID -> record.
     public let lookup: [GUID: BookmarkTreeNode]
+
+    // Child GUID -> parent GUID.
+    public let parents: [GUID: GUID]
     public let deleted: Set<GUID>
 
+    public var subtreeGUIDs: Set<GUID> {
+        return Set(self.subtrees.map { $0.recordGUID })
+    }
+
     public func isEmpty() -> Bool {
-        return self.roots.isEmpty && self.deleted.isEmpty
+        return self.subtrees.isEmpty && self.deleted.isEmpty
+    }
+
+    public func includesOrDeletesNode(node: BookmarkTreeNode) -> Bool {
+        return self.includesOrDeletesGUID(node.recordGUID)
+    }
+
+    public func includesNode(node: BookmarkTreeNode) -> Bool {
+        return self.includesGUID(node.recordGUID)
+    }
+
+    public func includesOrDeletesGUID(guid: GUID) -> Bool {
+        return self.includesGUID(guid) || self.deleted.contains(guid)
+    }
+
+    public func includesGUID(guid: GUID) -> Bool {
+        return self.lookup[guid] != nil
+    }
+
+    public func find(node: BookmarkTreeNode) -> BookmarkTreeNode? {
+        return self.lookup[node.recordGUID]
     }
 
     /**
-     * Return a new tree that is exactly this tree but with additional layers added
-     * on top to reach the same roots as the provided base, if possible.
-     * If this tree was created as an overlay on the provided base tree, this should
-     * always succeed. If not (e.g., if `base` is empty), then the result should be
-     * somewhere between no change and the ideal outcome.
+     * True if there is one subtree, and it's the Root, when overlayed.
+     * We assume that the mirror will always be consistent, so what
+     * this really means is that every subtree in this tree is *present*
+     * in the comparison tree, or is itself rooted in a known root.
      */
-    public func overlayOnBase(base: BookmarkTree) -> BookmarkTree {
-        // TODO
-        return self
+    public func isFullyRootedIn(tree: BookmarkTree) -> Bool {
+        // We don't compare against tree.deleted, because you can't *undelete*.
+        return self.subtrees.every { subtree in
+            tree.includesNode(subtree) || subtree.isRoot
+        }
+    }
+
+    static func mappingsToTree(mappings: [StructureRow]) -> Deferred<Maybe<BookmarkTree>> {
+        // Accumulate.
+        var nodes: [GUID: BookmarkTreeNode] = [:]
+        var parents: [GUID: GUID] = [:]
+        var remainingFolders = Set<GUID>()
+        var tops = Set<GUID>()
+        var notTops = Set<GUID>()
+
+        // Precompute every leaf node.
+        mappings.forEach { row in
+            log.debug("Mapping: \(row.parent) -> \(row.child) (child type: \(row.type))")
+            parents[row.child] = row.parent
+            remainingFolders.insert(row.parent)
+            tops.insert(row.parent)
+
+            // None of the children we've seen can be top, so remove them.
+            notTops.insert(row.child)
+
+            if let type = row.type {
+                switch type {
+                case .Folder:
+                    // The child is itself a folder.
+                    remainingFolders.insert(row.child)
+                default:
+                    nodes[row.child] = BookmarkTreeNode.NonFolder(guid: row.child, overridden: false)
+                }
+            } else {
+                // This will be the case if we've shadowed a folder; we indirectly reference the original rows.
+                nodes[row.child] = BookmarkTreeNode.Unknown(guid: row.child)
+            }
+        }
+
+        tops.subtractInPlace(notTops)
+
+        // We can't immediately build the final tree, because we need to do it bottom-up!
+        // So store structure, which we can figure out flat.
+        var pseudoTree: [GUID: [GUID]] = mappings.groupBy({ $0.parent }, transformer: { $0.child })
+
+        // Recursive. (Not tail recursive, but trees shouldn't be deep enough to blow the stack….)
+        func nodeForGUID(guid: GUID) -> BookmarkTreeNode {
+            if let already = nodes[guid] {
+                return already
+            }
+
+            if !remainingFolders.contains(guid) {
+                return BookmarkTreeNode.Unknown(guid: guid)
+            }
+
+            // Removing these eagerly prevents infinite recursion in the case of a cycle.
+            let childGUIDs = pseudoTree[guid] ?? []
+            pseudoTree.removeValueForKey(guid)
+            remainingFolders.remove(guid)
+
+            let node = BookmarkTreeNode.Folder(guid: guid, overridden: false, children: childGUIDs.map(nodeForGUID))
+            nodes[guid] = node
+            return node
+        }
+
+        // Process every record.
+        // Do the not-tops first: shallower recursion.
+        notTops.forEach({ nodeForGUID($0) })
+        let subtrees = tops.map(nodeForGUID)
+
+        // Whatever we're left with in `tops` is the set of records for which we
+        // didn't process a parent.
+        // TODO: deleted!
+        return deferMaybe(BookmarkTree(subtrees: subtrees, lookup: nodes, parents: parents, deleted: Set<GUID>()))
     }
 }
 
+// Recursively process an input set of structure pairs to yield complete subtrees,
+// assembling those subtrees to make a minimal set of trees.
+// We don't handle overridden yet.
+
+typealias StructureRow = (parent: GUID, child: GUID, type: BookmarkNodeType?)
 /*
     public lazy var isBookmarkRoot: Bool = {
         return BookmarkRoots.All.contains(self.root.guid)
