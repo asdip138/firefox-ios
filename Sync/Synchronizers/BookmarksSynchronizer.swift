@@ -394,11 +394,46 @@ class TrivialBookmarksMerger: BookmarksMerger {
         // No match in the mirror? Check for content match with the same parent, any position.
         // Still no match? Add.
 
-        // 1. Make sure that both the buffer and local trees are rooted in the mirror.
-        //    This allows us to take our walk.
-        let localRooted = local.overlayOnBase(mirror)
-        let bufferRooted = buffer.overlayOnBase(mirror)
-        // TODO
+        // Both local and buffer should reach a single root when overlayed. If not, it means that
+        // the tree is inconsistent -- there isn't a full tree present either on the server (or local)
+        // or in the mirror, or the changes aren't congruent in some way. If we reach this state, we
+        // cannot proceed.
+        if !local.isFullyRootedIn(mirror) {
+            log.warning("Local bookmarks not fully rooted when overlayed on mirror. This is most unusual.")
+            return deferMaybe(BookmarksMergeErrorTreeIsUnrooted(roots: local.subtreeGUIDs))
+        }
+
+        if !buffer.isFullyRootedIn(mirror) {
+            log.warning("Bookmarks buffer not fully rooted when overlayed on mirror. Partial read or write?")
+
+            // TODO: request recovery.
+            return deferMaybe(BookmarksMergeErrorTreeIsUnrooted(roots: buffer.subtreeGUIDs))
+        }
+
+        let localAllGUIDs = Set<GUID>(local.lookup.keys)
+        let bufferAllGUIDs = Set<GUID>(buffer.lookup.keys)
+
+        log.debug("Processing \(localAllGUIDs.count) local changes and \(bufferAllGUIDs.count) remote.")
+        log.debug("\(local.subtrees.count) local subtrees and \(buffer.subtrees.count) subtrees.")
+
+        let allGUIDs = localAllGUIDs.union(bufferAllGUIDs)
+        let conflictingGUIDs = localAllGUIDs.intersect(bufferAllGUIDs)
+        if !conflictingGUIDs.isEmpty {
+            log.warning("Expecting conflicts between local and buffer: \(conflictingGUIDs.joinWithSeparator(", ")).")
+        }
+
+        // Keep track of records we've processed.
+        // TODO: track local and remote separately?
+        var processed: Set<GUID> = Set<GUID>(minimumCapacity: allGUIDs.count)
+
+        // Process incoming subtrees first.
+        buffer.subtrees.forEach { subtree in
+            // The isFullyRootedIn check earlier would have failed if this could fail for non-roots.
+            let isRoot = subtree.isRoot
+            let mirrored = mirror.find(subtree)
+            let counterpart = local.find(subtree)
+        }
+
         return deferMaybe(BookmarksMergeResult.NoOp)
     }
 
